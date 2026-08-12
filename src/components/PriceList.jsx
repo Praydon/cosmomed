@@ -1,5 +1,5 @@
-import { MessageCircle, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight, MessageCircle, Search, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { priceCategories, whatsappLink } from '../data/pricing.js'
 
 const MOBILE_PRICE_LIMIT = 8
@@ -66,7 +66,14 @@ export default function PriceList() {
   const [activeId, setActiveId] = useState(priceCategories[0].id)
   const [query, setQuery] = useState('')
   const [expandedCategories, setExpandedCategories] = useState({})
+  const [tabScrollState, setTabScrollState] = useState({ canScrollLeft: false, canScrollRight: true })
+  const priceCardRef = useRef(null)
+  const tabsListRef = useRef(null)
   const tabsRef = useRef([])
+  const tabScrollCursorRef = useRef(0)
+  const tabNudgeDoneRef = useRef(false)
+  const tabNudgeTimersRef = useRef([])
+  const tabInteractionRef = useRef(false)
   const normalizedQuery = query.trim().toLocaleLowerCase('ru')
 
   const visibleCategories = useMemo(() => {
@@ -84,6 +91,81 @@ export default function PriceList() {
 
   const matchCount = visibleCategories.reduce((total, category) => total + category.items.length, 0)
 
+  const updateTabScrollState = useCallback(() => {
+    const tabList = tabsListRef.current
+    if (!tabList) return
+
+    const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth)
+    const tabs = tabsRef.current.filter(Boolean)
+    if (tabs.length) {
+      const referencePoint = tabList.scrollLeft + 8
+      tabScrollCursorRef.current = tabs.reduce((nearestIndex, tab, index) => (
+        Math.abs(tab.offsetLeft - referencePoint) < Math.abs(tabs[nearestIndex].offsetLeft - referencePoint)
+          ? index
+          : nearestIndex
+      ), 0)
+    }
+    const nextState = {
+      canScrollLeft: tabList.scrollLeft > 2,
+      canScrollRight: tabList.scrollLeft < maxScrollLeft - 2,
+    }
+
+    setTabScrollState((current) => (
+      current.canScrollLeft === nextState.canScrollLeft
+      && current.canScrollRight === nextState.canScrollRight
+        ? current
+        : nextState
+    ))
+  }, [])
+
+  const cancelTabNudge = useCallback(() => {
+    tabInteractionRef.current = true
+    tabNudgeTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+    tabNudgeTimersRef.current = []
+  }, [])
+
+  const scrollTabIntoSafeView = useCallback((tab, behavior = 'smooth') => {
+    const tabList = tabsListRef.current
+    if (!tabList || !tab) return
+
+    const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth)
+    const currentLeft = tabList.scrollLeft
+    const leftInset = currentLeft > 2 ? 56 : 8
+    const rightInset = currentLeft < maxScrollLeft - 2 ? 56 : 8
+    const tabLeft = tab.offsetLeft
+    const tabRight = tabLeft + tab.offsetWidth
+    let nextLeft = currentLeft
+
+    if (tabLeft < currentLeft + leftInset) {
+      nextLeft = tabLeft - leftInset
+    } else if (tabRight > currentLeft + tabList.clientWidth - rightInset) {
+      nextLeft = tabRight - tabList.clientWidth + rightInset
+    }
+
+    tabList.scrollTo({
+      left: Math.max(0, Math.min(maxScrollLeft, nextLeft)),
+      behavior,
+    })
+  }, [])
+
+  const scrollCategories = (direction) => {
+    cancelTabNudge()
+    const tabList = tabsListRef.current
+    const tabs = tabsRef.current.filter(Boolean)
+    if (!tabList || !tabs.length) return
+
+    const nextIndex = Math.max(0, Math.min(
+      tabs.length - 1,
+      tabScrollCursorRef.current + direction,
+    ))
+    tabScrollCursorRef.current = nextIndex
+
+    tabList.scrollTo({
+      left: Math.max(0, tabs[nextIndex].offsetLeft - 8),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    })
+  }
+
   useEffect(() => {
     const onCategorySelect = (event) => {
       if (!priceCategories.some((category) => category.id === event.detail)) return
@@ -96,17 +178,71 @@ export default function PriceList() {
   }, [])
 
   useEffect(() => {
-    if (!window.matchMedia('(max-width: 720px)').matches) return
+    if (!window.matchMedia('(max-width: 767px)').matches) return
     const activeIndex = priceCategories.findIndex((category) => category.id === activeId)
     const activeTab = tabsRef.current[activeIndex]
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const tabList = activeTab?.parentElement
-    if (!activeTab || !tabList) return
-    tabList.scrollTo({
-      left: activeTab.offsetLeft - (tabList.clientWidth - activeTab.offsetWidth) / 2,
-      behavior: reduceMotion ? 'auto' : 'smooth',
+    if (!activeTab) return
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollTabIntoSafeView(activeTab, reduceMotion ? 'auto' : 'smooth')
     })
-  }, [activeId])
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeId, scrollTabIntoSafeView])
+
+  useEffect(() => {
+    const tabList = tabsListRef.current
+    if (!tabList) return undefined
+
+    const resizeObserver = 'ResizeObserver' in window
+      ? new ResizeObserver(updateTabScrollState)
+      : null
+    resizeObserver?.observe(tabList)
+    tabList.addEventListener('scroll', updateTabScrollState, { passive: true })
+    window.addEventListener('resize', updateTabScrollState)
+    updateTabScrollState()
+
+    return () => {
+      resizeObserver?.disconnect()
+      tabList.removeEventListener('scroll', updateTabScrollState)
+      window.removeEventListener('resize', updateTabScrollState)
+    }
+  }, [updateTabScrollState])
+
+  useEffect(() => {
+    const priceCard = priceCardRef.current
+    const tabList = tabsListRef.current
+    const isMobile = window.matchMedia('(max-width: 767px)').matches
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!priceCard || !tabList || !isMobile || reduceMotion || !('IntersectionObserver' in window)) return undefined
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting || tabNudgeDoneRef.current || tabInteractionRef.current) return
+        tabNudgeDoneRef.current = true
+
+        const forwardTimer = window.setTimeout(() => {
+          if (tabInteractionRef.current) return
+          tabList.scrollTo({ left: 22, behavior: 'smooth' })
+
+          const returnTimer = window.setTimeout(() => {
+            if (!tabInteractionRef.current) tabList.scrollTo({ left: 0, behavior: 'smooth' })
+          }, 260)
+          tabNudgeTimersRef.current.push(returnTimer)
+        }, 160)
+        tabNudgeTimersRef.current.push(forwardTimer)
+        observer.disconnect()
+      },
+      { threshold: 0.32 },
+    )
+
+    observer.observe(priceCard)
+    return () => {
+      observer.disconnect()
+      tabNudgeTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+      tabNudgeTimersRef.current = []
+    }
+  }, [])
 
   const handleTabKeyDown = (event, index) => {
     let nextIndex = null
@@ -153,34 +289,63 @@ export default function PriceList() {
           </div>
         </div>
 
-        <div className="price-card reveal">
+        <div className="price-card reveal" ref={priceCardRef}>
           <div
-            className={`price-tabs${normalizedQuery ? ' is-searching' : ''}`}
-            role="tablist"
-            aria-label={normalizedQuery ? 'Категории прайс-листа. Поиск выполняется по всем категориям' : 'Категории прайс-листа'}
+            className={`price-tabs-shell${tabScrollState.canScrollLeft ? ' can-scroll-left' : ''}${tabScrollState.canScrollRight ? ' can-scroll-right' : ''}`}
           >
-            {priceCategories.map((category, index) => {
-              const isActive = category.id === activeId
-              return (
-                <button
-                  key={category.id}
-                  ref={(element) => { tabsRef.current[index] = element }}
-                  id={`tab-${category.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-controls={`panel-${category.id}`}
-                  tabIndex={isActive ? 0 : -1}
-                  onClick={() => {
-                    setActiveId(category.id)
-                    setQuery('')
-                  }}
-                  onKeyDown={(event) => handleTabKeyDown(event, index)}
-                >
-                  {category.label}
-                </button>
-              )
-            })}
+            {tabScrollState.canScrollLeft && (
+              <button
+                className="price-tabs-arrow price-tabs-arrow-previous"
+                type="button"
+                aria-label="Показать предыдущую категорию"
+                onClick={() => scrollCategories(-1)}
+              >
+                <ChevronLeft aria-hidden="true" size={20} />
+              </button>
+            )}
+            <div
+              ref={tabsListRef}
+              className={`price-tabs${normalizedQuery ? ' is-searching' : ''}`}
+              role="tablist"
+              aria-label={normalizedQuery ? 'Категории прайс-листа. Поиск выполняется по всем категориям' : 'Категории прайс-листа'}
+              onPointerDown={cancelTabNudge}
+              onTouchStart={cancelTabNudge}
+              onWheel={cancelTabNudge}
+              onKeyDownCapture={cancelTabNudge}
+            >
+              {priceCategories.map((category, index) => {
+                const isActive = category.id === activeId
+                return (
+                  <button
+                    key={category.id}
+                    ref={(element) => { tabsRef.current[index] = element }}
+                    id={`tab-${category.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls={`panel-${category.id}`}
+                    tabIndex={isActive ? 0 : -1}
+                    onClick={() => {
+                      setActiveId(category.id)
+                      setQuery('')
+                    }}
+                    onKeyDown={(event) => handleTabKeyDown(event, index)}
+                  >
+                    {category.label}
+                  </button>
+                )
+              })}
+            </div>
+            {tabScrollState.canScrollRight && (
+              <button
+                className="price-tabs-arrow price-tabs-arrow-next"
+                type="button"
+                aria-label="Показать следующую категорию"
+                onClick={() => scrollCategories(1)}
+              >
+                <ChevronRight aria-hidden="true" size={20} />
+              </button>
+            )}
           </div>
 
           <div className="price-results" aria-live="polite">

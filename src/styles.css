@@ -934,6 +934,14 @@ button {
   box-shadow: var(--shadow-sm);
 }
 
+.price-tabs-shell {
+  position: relative;
+}
+
+.price-tabs-arrow {
+  display: none;
+}
+
 .price-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2807,6 +2815,117 @@ button {
 
   .mobile-cta-bar a {
     font-size: 0.84rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .price-card {
+    overflow-anchor: none;
+  }
+
+  .price-tabs-shell::before,
+  .price-tabs-shell::after {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 1px;
+    width: 68px;
+    opacity: 0;
+    pointer-events: none;
+    content: '';
+    transition: opacity 160ms ease;
+  }
+
+  .price-tabs-shell::before {
+    left: 0;
+    background: linear-gradient(90deg, #f4f8fb 30%, rgba(244, 248, 251, 0));
+  }
+
+  .price-tabs-shell::after {
+    right: 0;
+    background: linear-gradient(90deg, rgba(244, 248, 251, 0), #f4f8fb 70%);
+  }
+
+  .price-tabs-shell.can-scroll-left::before,
+  .price-tabs-shell.can-scroll-right::after {
+    opacity: 1;
+  }
+
+  .price-tabs {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    grid-template-columns: none;
+    gap: 6px;
+    padding: 5px 52px 5px 6px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scroll-behavior: smooth;
+    scroll-padding-inline: 54px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .price-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .price-tabs button {
+    min-width: max-content;
+    min-height: 56px;
+    flex: 0 0 auto;
+    padding: 9px 8px;
+    font-size: 0.82rem;
+    text-align: center;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+
+  .price-tabs button:first-child {
+    width: 88px;
+    min-width: 88px;
+    white-space: normal;
+  }
+
+  .price-tabs button:nth-child(2) {
+    padding-inline: 6px;
+    font-size: 0.78rem;
+  }
+
+  .price-tabs-arrow {
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 1px solid #b8d0e2;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.96);
+    color: var(--brand-blue-strong);
+    box-shadow: 0 6px 18px rgba(26, 79, 120, 0.16);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: border-color 160ms ease, color 160ms ease, transform 160ms ease;
+  }
+
+  .price-tabs-arrow:hover {
+    border-color: var(--brand-blue);
+    color: var(--brand-blue-deep);
+  }
+
+  .price-tabs-arrow:active {
+    transform: translateY(-50%) scale(0.96);
+  }
+
+  .price-tabs-arrow-previous {
+    left: 6px;
+  }
+
+  .price-tabs-arrow-next {
+    right: 6px;
   }
 }
 
